@@ -51,15 +51,21 @@ namespace S1SSEdit
 
 		private void MainForm_Load(object sender, EventArgs e)
 		{
-			imageTransparency.SetColorMatrix(new ColorMatrix() { Matrix33 = 0.75f }, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+			// Set image transparency
+			float transparency = 0.75f;
+			imageTransparency.SetColorMatrix(new ColorMatrix() { Matrix33 = transparency }, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+
+			// Initialize LayoutDrawer
 			LayoutDrawer.Init();
-			int x = 0;
-			int y = 0;
+
+			// Populate objectPalette
+			int tileSize = 24;
+			int x = 0, y = 0;
 			BitmapBits bmp = new BitmapBits(objectPalette.Size);
 			foreach (var item in LayoutDrawer.ObjectBmps)
 			{
 				objids.Add(item.Key);
-				bmp.DrawBitmap(item.Value, x * 24, y * 24);
+				bmp.DrawBitmap(item.Value, x * tileSize, y * tileSize);
 				if (++x == 16)
 				{
 					x = 0;
@@ -67,57 +73,61 @@ namespace S1SSEdit
 				}
 			}
 			objectPalette.BackgroundImage = bmp.ToBitmap(LayoutDrawer.Palette);
+
+			// Set initial images for foreObjPicture, backObjPicture, and startposbmp
 			foreObjPicture.Image = LayoutDrawer.ObjectBmps[1].ToBitmap(LayoutDrawer.Palette).To32bpp();
-			backObjPicture.Image = new Bitmap(24, 24);
+			backObjPicture.Image = new Bitmap(tileSize, tileSize);
 			startposbmp = LayoutDrawer.StartPosBmp.ToBitmap(LayoutDrawer.Palette).To32bpp();
+
+			// Load layout sections if LayoutSections.sls exists
 			if (File.Exists("LayoutSections.sls"))
+			{
 				layoutSections = DeserializeCompressed<List<LayoutSection>>("LayoutSections.sls");
-			layoutSectionListBox.Items.Clear();
-			layoutSectionListBox.BeginUpdate();
-			foreach (LayoutSection sec in layoutSections)
-			{
-				layoutSectionListBox.Items.Add(sec.Name);
-				layoutSectionImages.Add(MakeLayoutSectionImage(sec));
+				layoutSectionListBox.Items.Clear();
+				layoutSectionListBox.BeginUpdate();
+				foreach (LayoutSection sec in layoutSections)
+				{
+					layoutSectionListBox.Items.Add(sec.Name);
+					layoutSectionImages.Add(MakeLayoutSectionImage(sec));
+				}
+				layoutSectionListBox.EndUpdate();
 			}
-			layoutSectionListBox.EndUpdate();
+
+			// Load settings from S1SSEdit.ini if it exists
 			if (File.Exists("S1SSEdit.ini"))
-				settings = Settings.Load("S1SSEdit.ini");
-			if (settings.RecentFiles.Count > 0)
 			{
+				settings = Settings.Load("S1SSEdit.ini");
 				List<string> mru = new List<string>();
 				foreach (string item in settings.RecentFiles)
+				{
 					if (File.Exists(item))
 					{
 						mru.Add(item);
 						recentFilesToolStripMenuItem.DropDownItems.Add(item.Replace("&", "&&"));
 					}
+				}
 				settings.RecentFiles = mru;
 				recentFilesToolStripMenuItem.Enabled = mru.Count > 0;
 			}
+
+			// Set initial state for menu items and UI settings
 			saveUndoHistoryToolStripMenuItem.Checked = settings.SaveUndoHistory;
 			autoincrementAnimatedBlocksToolStripMenuItem.Checked = settings.AutoIncrementAnimatedBlocks;
 			showNumbersOnWallsToolStripMenuItem.Checked = settings.ShowNumbersOnWalls;
 			showGridToolStripMenuItem.Checked = settings.ShowGrid;
+
+			// Initialize graphics for layoutPanel
 			layoutgfx = layoutPanel.CreateGraphics();
 			layoutgfx.SetOptions();
-		}
-
-		private static T DeserializeCompressed<T>(string fn)
-		{
-			using (FileStream fs = File.OpenRead(fn))
-			using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
-				return (T)new BinaryFormatter().Deserialize(ds);
-		}
-
-		private Bitmap MakeLayoutSectionImage(LayoutSection section)
-		{
-			return LayoutDrawer.DrawLayout(section.Layout, true).ToBitmap(LayoutDrawer.Palette).To32bpp();
 		}
 
 		private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
 			if (undoList.Count != lastSaveUndoCount)
-				switch (MessageBox.Show(this, "Do you want to save before exiting?", "S1SSEdit", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning))
+			{
+				DialogResult result = MessageBox.Show(this, "Do you want to save before exiting?", "S1SSEdit", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button3);
+
+				switch (result)
 				{
 					case DialogResult.Cancel:
 						e.Cancel = true;
@@ -126,6 +136,9 @@ namespace S1SSEdit
 						saveToolStripMenuItem_Click(this, EventArgs.Empty);
 						break;
 				}
+			}
+
+			// Save settings
 			settings.SaveUndoHistory = saveUndoHistoryToolStripMenuItem.Checked;
 			settings.AutoIncrementAnimatedBlocks = autoincrementAnimatedBlocksToolStripMenuItem.Checked;
 			settings.ShowNumbersOnWalls = showNumbersOnWallsToolStripMenuItem.Checked;
@@ -133,18 +146,40 @@ namespace S1SSEdit
 			settings.Save("S1SSEdit.ini");
 		}
 
+		private static T DeserializeCompressed<T>(string fn)
+		{
+			using (FileStream fs = File.OpenRead(fn))
+			using (DeflateStream ds = new DeflateStream(fs, CompressionMode.Decompress))
+			{
+				BinaryFormatter formatter = new BinaryFormatter();
+				return (T)formatter.Deserialize(ds);
+			}
+		}
+
+		private Bitmap MakeLayoutSectionImage(LayoutSection section)
+		{
+			return LayoutDrawer.DrawLayout(section.Layout, true).ToBitmap(LayoutDrawer.Palette).To32bpp();
+		}
+
+
 		private void UpdateText()
 		{
 			StringBuilder sb = new StringBuilder("S1SSEdit - ");
 			sb.Append(stgname);
 			if (undoList.Count != lastSaveUndoCount)
+			{
 				sb.Append(" *");
+			}
 			Text = sb.ToString();
 		}
 
 		private void newToolStripMenuItem_Click(object sender, EventArgs e)
 		{
-			if (MessageBox.Show(this, $"Unload the current {(project != null ? "project" : "stage")} and start a new {(project != null ? "stage" : "one")}?", "S1SSEdit", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.OK)
+			string itemType = project != null ? "project" : "stage";
+			string actionType = project != null ? "stage" : "one";
+			DialogResult result = MessageBox.Show(this, $"Unload the current {itemType} and start a new {actionType}?", "S1SSEdit", MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+
+			if (result == DialogResult.OK)
 			{
 				layout = new LayoutData();
 				filename = null;
@@ -152,6 +187,7 @@ namespace S1SSEdit
 				LoadStage();
 			}
 		}
+
 
 		private void openToolStripMenuItem_Click(object sender, EventArgs e)
 		{
